@@ -1,56 +1,76 @@
 const prisma = require('../config/prisma')
 const bcrypt = require('bcryptjs')
 const jwt = require('jsonwebtoken')
+const { z } = require('zod')
 
 //secret key
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key'
+const JWT_SECRET = process.env.JWT_SECRET
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET is not defined in environment variables')
+}
 
-const registerUser = async(email,password)=>{
-    const existingUser = await prisma.user.findUnique({
-        where:{email}
-    })
+const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6, "Password must be at least 6 characters long")
+})
 
-    if (existingUser) {
+const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string()
+})
+
+const registerUser = async (email, password) => {
+  // Validate input
+  registerSchema.parse({ email, password })
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email }
+  })
+
+  if (existingUser) {
     throw new Error('User already exists');
-    }
+  }
 
-    const salt = await bcrypt.genSalt(10)
-    const hashedpassword = await bcrypt.hash(password,salt)
+  const salt = await bcrypt.genSalt(10)
+  const hashedpassword = await bcrypt.hash(password, salt)
 
-    const user = await prisma.user.create({
+  const user = await prisma.user.create({
     data: {
       email,
       password: hashedpassword,
-      
-    }
-    });
 
-    // 4. Return user info (but NOT the password!)
-    return { id: user.id, email: user.email };
+    }
+  });
+
+  // 4. Return user info (but NOT the password!)
+  return { id: user.id, email: user.email };
 }
 
-const loginUser = async (email , password) => {
+const loginUser = async (email, password) => {
+  // Validate input
+  loginSchema.parse({ email, password })
+
   const user = await prisma.user.findUnique({
-    where:{email}
+    where: { email }
   })
 
-  if(!user){
-  throw new Error('Invalid email or password');
+  if (!user) {
+    throw new Error('Invalid email or password');
   }
 
-  const isMatch  = await bcrypt.compare(password,user.password)
+  const isMatch = await bcrypt.compare(password, user.password)
 
-  if(!isMatch){
+  if (!isMatch) {
     throw new Error('Invalid email or password')
   }
 
   const token = jwt.sign(
-    {userId : user.id, email: user.email},
+    { userId: user.id, email: user.email },
     JWT_SECRET,
-    {expiresIn: '1h'}
+    { expiresIn: '1h' }
   )
-  return{
-    user : {id:user.id , email: user.email},
+  return {
+    user: { id: user.id, email: user.email },
     token
   }
 }
